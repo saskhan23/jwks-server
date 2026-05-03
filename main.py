@@ -11,7 +11,7 @@ app = FastAPI()
 
 DB_FILE = "totally_not_my_privateKeys.db"
 
-# 🔥 Rate limiter storage
+# Rate limiter storage
 request_times = []
 
 def get_fernet():
@@ -158,7 +158,7 @@ def jwks():
 @app.post("/auth")
 def auth(request: Request, expired: bool = Query(False)):
 
-    # 🔥 RATE LIMITER (10 requests/sec)
+    # RATE LIMITER (10 requests/sec)
     global request_times
     now_time = time.time()
     request_times = [t for t in request_times if now_time - t < 1]
