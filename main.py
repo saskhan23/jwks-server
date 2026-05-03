@@ -5,12 +5,14 @@ from cryptography.fernet import Fernet
 import os, base64
 import jwt
 import time
-import base64
 import sqlite3
 
 app = FastAPI()
 
 DB_FILE = "totally_not_my_privateKeys.db"
+
+# 🔥 Rate limiter storage
+request_times = []
 
 def get_fernet():
     key = os.environ.get("NOT_MY_KEY", "fallbackkey1234567890123456789012")
@@ -19,7 +21,6 @@ def get_fernet():
 
 def get_db_connection():
     return sqlite3.connect(DB_FILE)
-
 
 def generate_key_pem():
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -30,10 +31,8 @@ def generate_key_pem():
     )
     return pem
 
-
 def load_private_key_from_pem(pem_data):
     return serialization.load_pem_private_key(pem_data, password=None)
-
 
 def rsa_to_jwk(private_key, kid):
     public_key = private_key.public_key()
@@ -53,7 +52,6 @@ def rsa_to_jwk(private_key, kid):
         "n": n,
         "e": e,
     }
-
 
 def init_db():
     with get_db_connection() as conn:
@@ -110,7 +108,6 @@ def init_db():
 
         conn.commit()
 
-
 @app.post("/register")
 def register(user: dict):
     import uuid
@@ -140,7 +137,6 @@ def register(user: dict):
 
     return {"password": password}
 
-
 @app.get("/.well-known/jwks.json")
 def jwks():
     now = int(time.time())
@@ -152,16 +148,26 @@ def jwks():
 
     keys = []
     for kid, pem_data, _exp in rows:
-        f = get_fernet() 
+        f = get_fernet()
         decrypted = f.decrypt(pem_data)
         private_key = load_private_key_from_pem(decrypted)
         keys.append(rsa_to_jwk(private_key, kid))
 
     return {"keys": keys}
 
-
 @app.post("/auth")
 def auth(request: Request, expired: bool = Query(False)):
+
+    # 🔥 RATE LIMITER (10 requests/sec)
+    global request_times
+    now_time = time.time()
+    request_times = [t for t in request_times if now_time - t < 1]
+
+    if len(request_times) >= 10:
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
+    request_times.append(now_time)
+
     now = int(time.time())
 
     with get_db_connection() as conn:
@@ -201,7 +207,7 @@ def auth(request: Request, expired: bool = Query(False)):
         headers={"kid": str(kid)},
     )
 
-    #LOG AUTH REQUEST
+    # LOG ONLY SUCCESSFUL REQUESTS
     ip = request.client.host
 
     with get_db_connection() as conn:
@@ -213,6 +219,5 @@ def auth(request: Request, expired: bool = Query(False)):
         conn.commit()
 
     return {"token": token}
-
 
 init_db()
