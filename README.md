@@ -22,3 +22,14 @@ CREATE TABLE IF NOT EXISTS keys(
     key BLOB NOT NULL,
     exp INTEGER NOT NULL
 )
+
+## Screenshots
+
+### Test Suite Results
+![Pytest Results](screenshots/pytest_pass_project3.png)
+
+### Register Endpoint
+![Register Success](screenshots/register_success.png)
+
+### Auth Endpoint
+![Auth Success](screenshots/auth_success.png)
