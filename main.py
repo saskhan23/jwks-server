@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Query, HTTPException, Request
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+from cryptography.fernet import Fernet
+import os, base64
 import jwt
 import time
 import base64
@@ -10,6 +12,10 @@ app = FastAPI()
 
 DB_FILE = "totally_not_my_privateKeys.db"
 
+def get_fernet():
+    key = os.environ.get("NOT_MY_KEY", "fallbackkey1234567890123456789012")
+    key = base64.urlsafe_b64encode(key.encode().ljust(32)[:32])
+    return Fernet(key)
 
 def get_db_connection():
     return sqlite3.connect(DB_FILE)
@@ -88,8 +94,9 @@ def init_db():
         if count == 0:
             now = int(time.time())
 
-            expired_key_pem = generate_key_pem()
-            valid_key_pem = generate_key_pem()
+            f = get_fernet()
+            expired_key_pem = f.encrypt(generate_key_pem())
+            valid_key_pem = f.encrypt(generate_key_pem())
 
             cursor.execute(
                 "INSERT INTO keys (key, exp) VALUES (?, ?)",
@@ -145,7 +152,9 @@ def jwks():
 
     keys = []
     for kid, pem_data, _exp in rows:
-        private_key = load_private_key_from_pem(pem_data)
+        f = get_fernet() 
+        decrypted = f.decrypt(pem_data)
+        private_key = load_private_key_from_pem(decrypted)
         keys.append(rsa_to_jwk(private_key, kid))
 
     return {"keys": keys}
@@ -175,7 +184,9 @@ def auth(request: Request, expired: bool = Query(False)):
         raise HTTPException(status_code=404, detail="No suitable key found")
 
     kid, pem_data, expiry = row
-    private_key = load_private_key_from_pem(pem_data)
+    f = get_fernet()
+    decrypted = f.decrypt(pem_data)
+    private_key = load_private_key_from_pem(decrypted)
 
     payload = {
         "sub": "userABC",
